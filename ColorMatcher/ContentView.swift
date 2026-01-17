@@ -1,6 +1,6 @@
 import SwiftUI
+internal import Combine
 
-// --- Model remains the same ---
 struct Square: Identifiable {
     let id = UUID()
     let color: Color
@@ -8,62 +8,61 @@ struct Square: Identifiable {
     var isMatched: Bool = false
 }
 
-// 2. The Main Dashboard View
 struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 30) {
-                Image(systemName: "square.grid.3x3.fill")
+                Image(systemName: "timer")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 100, height: 100)
+                    .frame(width: 80, height: 80)
                     .foregroundColor(.blue)
                 
-                Text("Memory Matcher")
+                Text("Memory Match")
                     .font(.system(size: 40, weight: .bold, design: .rounded))
                 
-                VStack(spacing: 15) {
-                    // Navigation Link to the Game
-                    NavigationLink(destination: GameView()) {
-                        Label("Start New Game", systemImage: "play.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                    }
-                    .padding(.horizontal, 40)
-                    
-                    // Example of another dashboard button
-                    Button(action: { /* Add settings or high scores logic here */ }) {
-                        Label("High Scores", systemImage: "trophy.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.orange.opacity(0.2))
-                            .foregroundColor(.orange)
-                            .cornerRadius(12)
-                    }
-                    .padding(.horizontal, 60)
+                NavigationLink(destination: GameView()) {
+                    Label("Start New Game", systemImage: "play.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
                 }
+                .padding(.horizontal, 50)
             }
             .navigationTitle("Dashboard")
         }
     }
 }
 
-// 3. The Game View (Moved your original logic here)
 struct GameView: View {
     @State private var grid: [Square] = []
     @State private var selectedIndices: [Int] = []
     @State private var isGameLocked: Bool = false
     
+    // --- Timer & State Stats ---
+    @State private var timeRemaining = 30 // 30 seconds limit
+    @State private var timerActive = false
+    @State private var showGameOver = false
+    @State private var gameOverMessage = ""
+    
+    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
     let colors: [Color] = [.red, .green, .blue]
 
     var body: some View {
         VStack(spacing: 20) {
+            // Timer Display
+            HStack {
+                Image(systemName: "clock")
+                Text("Time Left: \(timeRemaining)s")
+                    .font(.title2.monospacedDigit().bold())
+                    .foregroundColor(timeRemaining < 10 ? .red : .primary)
+            }
+            .padding()
+
             LazyVGrid(columns: columns, spacing: 15) {
                 ForEach(0..<grid.count, id: \.self) { index in
                     ZStack {
@@ -72,79 +71,120 @@ struct GameView: View {
                                 .fill(grid[index].isFaceUp ? grid[index].color : Color.gray)
                                 .frame(height: 100)
                                 .onTapGesture {
-                                    if !isGameLocked { handleTap(at: index) }
+                                    if !isGameLocked && timerActive { handleTap(at: index) }
                                 }
-                                .rotation3DEffect(
-                                    .degrees(grid[index].isFaceUp ? 180 : 0),
-                                    axis: (x: 0, y: 1, z: 0)
-                                )
                         } else {
-                            Spacer().frame(height: 100)
+                            // Empty space once matched
+                            Color.clear.frame(height: 100)
                         }
                     }
                 }
             }
             .padding()
 
-            Button("Restart Game") {
-                setupGame()
+            Button("Quit Game") {
+                timeRemaining = 0
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isGameLocked)
+            .foregroundColor(.red)
         }
         .navigationTitle("Matching Game")
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: setupGame)
+        .onReceive(timer) { _ in
+            if timerActive && timeRemaining > 0 {
+                timeRemaining -= 1
+                if timeRemaining == 0 {
+                    endGame(success: false)
+                }
+            }
+        }
+        .alert(gameOverMessage, isPresented:  $showGameOver) {
+            Button("Back to Dashboard", role: .cancel) { /* Pop handled by NavStack */ }
+            Button("Try Again") { setupGame() }
+        }
     }
 
-    // --- Original Game Logic Functions (setupGame, handleTap, checkMatch) ---
     func setupGame() {
         var newGrid: [Square] = []
-        for color in colors {
-            newGrid.append(Square(color: color, isFaceUp: true))
-            newGrid.append(Square(color: color, isFaceUp: true))
-            newGrid.append(Square(color: color, isFaceUp: true))
+        
+        // Define your colors
+        let colors: [Color] = [.red, .green, .blue]
+        
+        // 1. Add 2 squares (a pair) for the first two colors
+        for i in 0..<2 {
+            newGrid.append(Square(color: colors[i], isFaceUp: true))
+            newGrid.append(Square(color: colors[i], isFaceUp: true))
         }
+        
+        // 2. Add 3 squares for the last color (making it the odd one out)
+        // Total squares: (2 * 2) + 3 = 7 squares
+        newGrid.append(Square(color: colors[2], isFaceUp: true))
+        newGrid.append(Square(color: colors[2], isFaceUp: true))
+        newGrid.append(Square(color: colors[2], isFaceUp: true))
+        
         grid = newGrid.shuffled()
         selectedIndices = []
+        timeRemaining = 30
         isGameLocked = true
+        timerActive = false
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation(.easeInOut(duration: 0.5)) {
+            withAnimation {
                 for i in 0..<grid.count { grid[i].isFaceUp = false }
             }
             isGameLocked = false
+            timerActive = true
         }
     }
 
     func handleTap(at index: Int) {
         if isGameLocked || grid[index].isMatched || grid[index].isFaceUp || selectedIndices.count == 2 { return }
+        
         withAnimation(.linear(duration: 0.3)) { grid[index].isFaceUp = true }
         selectedIndices.append(index)
-        if selectedIndices.count == 2 { checkMatch() }
+        
+        if selectedIndices.count == 2 {
+            checkMatch()
+        }
     }
 
     func checkMatch() {
-        let firstIndex = selectedIndices[0]
-        let secondIndex = selectedIndices[1]
+        let first = selectedIndices[0]
+        let second = selectedIndices[1]
 
-        if grid[firstIndex].color == grid[secondIndex].color {
+        if grid[first].color == grid[second].color {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 withAnimation {
-                    grid[firstIndex].isMatched = true
-                    grid[secondIndex].isMatched = true
+                    grid[first].isMatched = true
+                    grid[second].isMatched = true
                     selectedIndices = []
                 }
+                checkWinCondition()
             }
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation {
-                    grid[firstIndex].isFaceUp = false
-                    grid[secondIndex].isFaceUp = false
+                    grid[first].isFaceUp = false
+                    grid[second].isFaceUp = false
                     selectedIndices = []
                 }
             }
         }
+    }
+
+    func checkWinCondition() {
+        // Count how many squares are NOT matched
+        let unmatchedCount = grid.filter { !$0.isMatched }.count
+        
+        // If only 1 square remains, you win!
+        if unmatchedCount == 1 {
+            endGame(success: true)
+        }
+    }
+
+    func endGame(success: Bool) {
+        timerActive = false
+        gameOverMessage = success ? "Congratulations! You won!" : "Time's up! You failed."
+        showGameOver = true
     }
 }
 #Preview {
