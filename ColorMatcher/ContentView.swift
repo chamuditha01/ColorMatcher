@@ -18,7 +18,7 @@ struct ContentView: View {
                     .frame(width: 80, height: 80)
                     .foregroundColor(.blue)
                 
-                Text("Memory Match")
+                Text("Memory sss")
                     .font(.system(size: 40, weight: .bold, design: .rounded))
                 
                 NavigationLink(destination: GameView()) {
@@ -105,34 +105,26 @@ struct GameView: View {
 
     func setupGame() {
         var newGrid: [Square] = []
-        
-        // Define your colors
-        let colors: [Color] = [.red, .green, .blue]
-        
-        // 1. Add 2 squares (a pair) for the first two colors
-        for i in 0..<2 {
-            newGrid.append(Square(color: colors[i], isFaceUp: true))
-            newGrid.append(Square(color: colors[i], isFaceUp: true))
+        // We add 3 squares per color (Total 9).
+        // Logic: 4 pairs will match, 1 square will remain.
+        for color in colors {
+            newGrid.append(Square(color: color, isFaceUp: true))
+            newGrid.append(Square(color: color, isFaceUp: true))
+            newGrid.append(Square(color: color, isFaceUp: true))
         }
-        
-        // 2. Add 3 squares for the last color (making it the odd one out)
-        // Total squares: (2 * 2) + 3 = 7 squares
-        newGrid.append(Square(color: colors[2], isFaceUp: true))
-        newGrid.append(Square(color: colors[2], isFaceUp: true))
-        newGrid.append(Square(color: colors[2], isFaceUp: true))
-        
         grid = newGrid.shuffled()
         selectedIndices = []
         timeRemaining = 30
         isGameLocked = true
-        timerActive = false
+        timerActive = false // Don't start clock during peek
         
+        // Initial Peek
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             withAnimation {
                 for i in 0..<grid.count { grid[i].isFaceUp = false }
             }
             isGameLocked = false
-            timerActive = true
+            timerActive = true // Start clock after peek
         }
     }
 
