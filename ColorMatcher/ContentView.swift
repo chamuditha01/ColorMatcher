@@ -8,10 +8,11 @@ struct Square: Identifiable {
     var isMatched: Bool = false
 }
 
+// MARK: - Dashboard
 struct ContentView: View {
     var body: some View {
         NavigationStack {
-            VStack(spacing: 30) {
+            VStack(spacing: 20) {
                 Image(systemName: "brain.head.profile")
                     .resizable()
                     .scaledToFit()
@@ -19,33 +20,85 @@ struct ContentView: View {
                     .foregroundColor(.blue)
                 
                 Text("Memory Master")
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                
-                NavigationLink(destination: GameView()) {
-                    Label("Start New Game", systemImage: "play.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .padding(.bottom, 0)
+                Text("Color Matcher")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .padding(.bottom, 20)
+                // Option 1: Direct Start (Level 1)
+                NavigationLink(destination: GameView(initialLevel: 1)) {
+                    HStack {
+                        Image(systemName: "play.fill")
+                        Text("Start New Game")
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
                 }
-                .padding(.horizontal, 50)
+                
+                // Option 2: Select Levels
+                NavigationLink(destination: LevelSelectionView()) {
+                    HStack {
+                        Image(systemName: "layers.fill")
+                        Text("Select Level")
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue.opacity(0.1))
+                    .foregroundColor(.blue)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.blue, lineWidth: 2)
+                    )
+                }
             }
+            .padding(.horizontal, 40)
             .navigationTitle("Dashboard")
         }
     }
 }
 
+// MARK: - Level Selection
+struct LevelSelectionView: View {
+    let levels = 1...5
+    
+    var body: some View {
+        List(levels, id: \.self) { level in
+            NavigationLink(destination: GameView(initialLevel: level)) {
+                HStack(spacing: 15) {
+                    Text("\(level)")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(width: 35, height: 35)
+                        .background(Color.blue)
+                        .clipShape(Circle())
+                    
+                    VStack(alignment: .leading) {
+                        Text("Level \(level)")
+                            .font(.body.bold())
+                        Text("\(level * 3) Pairs to find")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .navigationTitle("Choose a Level")
+    }
+}
+
+// MARK: - Game View
 struct GameView: View {
-    // --- 1. Navigation Control ---
     @Environment(\.dismiss) var dismiss
     
-    // --- Level State ---
-    @State private var currentLevel = 1
-    let maxLevel = 5
+    let initialLevel: Int
+    @State private var currentLevel: Int
     
-    // --- Game Logic State ---
     @State private var grid: [Square] = []
     @State private var selectedIndices: [Int] = []
     @State private var isGameLocked: Bool = false
@@ -59,9 +112,13 @@ struct GameView: View {
     let allColors: [Color] = [
         .red, .green, .blue, .orange, .purple,
         .pink, .yellow, .cyan, .brown, .indigo,
-        .mint, .teal, .gray, .black,
-        Color(red: 1, green: 0, blue: 1)
+        .mint, .teal, .gray, .black, Color(red: 1, green: 0, blue: 1)
     ]
+
+    init(initialLevel: Int) {
+        self.initialLevel = initialLevel
+        _currentLevel = State(initialValue: initialLevel)
+    }
 
     var columns: [GridItem] {
         let count = currentLevel > 2 ? 4 : 3
@@ -72,9 +129,9 @@ struct GameView: View {
         VStack(spacing: 15) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text("Level \(currentLevel)")
+                    Text("LEVEL \(currentLevel)")
                         .font(.caption.bold())
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.blue)
                     Text("Time: \(timeRemaining)s")
                         .font(.title2.monospacedDigit().bold())
                         .foregroundColor(timeRemaining < 10 ? .red : .primary)
@@ -97,59 +154,53 @@ struct GameView: View {
                 .padding()
             }
 
-            // --- 2. Quit Game Fix ---
             Button("Quit Game") {
-                dismiss() // This pops the view back to Dashboard
+                dismiss()
             }
             .foregroundColor(.red)
             .padding(.bottom)
         }
-        .navigationTitle("Level \(currentLevel)")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true) // Forces use of Quit button
-        .onAppear(perform: { setupGame() })
+        .navigationBarBackButtonHidden(true)
+        .onAppear(perform: setupGame)
         .onReceive(timer) { _ in
             if timerActive && timeRemaining > 0 {
                 timeRemaining -= 1
                 if timeRemaining == 0 { endGame(success: false) }
             }
         }
-        // --- 3. Alert Button Logic ---
         .alert(gameSuccess ? "Level Complete!" : "Game Over", isPresented: $showGameOver) {
             if gameSuccess {
-                if currentLevel < maxLevel {
+                if currentLevel < 5 {
                     Button("Next Level") {
                         currentLevel += 1
                         setupGame()
                     }
                 } else {
-                    Button("Finish") {
-                        dismiss()
-                    }
+                    Button("Finish") { dismiss() }
                 }
             } else {
                 Button("Try Again") { setupGame() }
-                Button("Quit", role: .cancel) {
-                    dismiss()
-                }
+                Button("Quit", role: .cancel) { dismiss() }
             }
         } message: {
             Text(gameSuccess ? "Great job! Ready for level \(currentLevel + 1)?" : "You ran out of time.")
         }
     }
 
-    // Logic remains same
     func setupGame() {
         isGameLocked = true
         timerActive = false
         selectedIndices = []
+        
         let numberOfPairs = currentLevel * 3
         let levelColors = Array(allColors.shuffled().prefix(numberOfPairs))
+        
         var newGrid: [Square] = []
         for color in levelColors {
             newGrid.append(Square(color: color, isFaceUp: true))
             newGrid.append(Square(color: color, isFaceUp: true))
         }
+        
         grid = newGrid.shuffled()
         timeRemaining = 20 + (currentLevel * 10)
         
@@ -200,6 +251,7 @@ struct GameView: View {
     }
 }
 
+// MARK: - Card Component
 struct CardView: View {
     let square: Square
     var body: some View {
@@ -208,19 +260,25 @@ struct CardView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(square.isFaceUp ? square.color : Color.blue.opacity(0.8))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.2), lineWidth: 2)
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(0.2), lineWidth: 2)
                     )
                     .shadow(radius: 2)
+                
                 if !square.isFaceUp {
-                    Image(systemName: "questionmark").foregroundColor(.white).font(.title.bold())
+                    Image(systemName: "questionmark")
+                        .foregroundColor(.white)
+                        .font(.title.bold())
                 }
             } else {
-                RoundedRectangle(cornerRadius: 12).fill(Color.clear)
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.clear)
             }
         }
         .frame(height: 90)
     }
 }
+
 #Preview {
     ContentView()
 }
