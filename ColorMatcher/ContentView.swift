@@ -1,5 +1,5 @@
 import SwiftUI
-internal import Combine
+import Combine
 
 struct Square: Identifiable {
     let id = UUID()
@@ -12,13 +12,13 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 30) {
-                Image(systemName: "timer")
+                Image(systemName: "brain.head.profile")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 80, height: 80)
                     .foregroundColor(.blue)
                 
-                Text("Memory sss")
+                Text("Memory Master")
                     .font(.system(size: 40, weight: .bold, design: .rounded))
                 
                 NavigationLink(destination: GameView()) {
@@ -38,111 +38,139 @@ struct ContentView: View {
 }
 
 struct GameView: View {
+    // --- 1. Navigation Control ---
+    @Environment(\.dismiss) var dismiss
+    
+    // --- Level State ---
+    @State private var currentLevel = 1
+    let maxLevel = 5
+    
+    // --- Game Logic State ---
     @State private var grid: [Square] = []
     @State private var selectedIndices: [Int] = []
     @State private var isGameLocked: Bool = false
-    
-    // --- Timer & State Stats ---
-    @State private var timeRemaining = 30 // 30 seconds limit
+    @State private var timeRemaining = 30
     @State private var timerActive = false
     @State private var showGameOver = false
-    @State private var gameOverMessage = ""
+    @State private var gameSuccess = false
     
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
-    let colors: [Color] = [.red, .green, .blue]
+    
+    let allColors: [Color] = [
+        .red, .green, .blue, .orange, .purple,
+        .pink, .yellow, .cyan, .brown, .indigo,
+        .mint, .teal, .gray, .black,
+        Color(red: 1, green: 0, blue: 1)
+    ]
+
+    var columns: [GridItem] {
+        let count = currentLevel > 2 ? 4 : 3
+        return Array(repeating: GridItem(.flexible()), count: count)
+    }
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Timer Display
+        VStack(spacing: 15) {
             HStack {
-                Image(systemName: "clock")
-                Text("Time Left: \(timeRemaining)s")
-                    .font(.title2.monospacedDigit().bold())
-                    .foregroundColor(timeRemaining < 10 ? .red : .primary)
+                VStack(alignment: .leading) {
+                    Text("Level \(currentLevel)")
+                        .font(.caption.bold())
+                        .foregroundColor(.secondary)
+                    Text("Time: \(timeRemaining)s")
+                        .font(.title2.monospacedDigit().bold())
+                        .foregroundColor(timeRemaining < 10 ? .red : .primary)
+                }
+                Spacer()
+                Text("\(grid.filter { $0.isMatched }.count / 2) / \(grid.count / 2) Pairs")
+                    .font(.subheadline.bold())
             }
-            .padding()
+            .padding(.horizontal)
 
-            LazyVGrid(columns: columns, spacing: 15) {
-                ForEach(0..<grid.count, id: \.self) { index in
-                    ZStack {
-                        if !grid[index].isMatched {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(grid[index].isFaceUp ? grid[index].color : Color.gray)
-                                .frame(height: 100)
-                                .onTapGesture {
-                                    if !isGameLocked && timerActive { handleTap(at: index) }
-                                }
-                        } else {
-                            // Empty space once matched
-                            Color.clear.frame(height: 100)
-                        }
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(0..<grid.count, id: \.self) { index in
+                        CardView(square: grid[index])
+                            .onTapGesture {
+                                if !isGameLocked && timerActive { handleTap(at: index) }
+                            }
                     }
                 }
+                .padding()
             }
-            .padding()
 
+            // --- 2. Quit Game Fix ---
             Button("Quit Game") {
-                timeRemaining = 0
+                dismiss() // This pops the view back to Dashboard
             }
             .foregroundColor(.red)
+            .padding(.bottom)
         }
-        .navigationTitle("Matching Game")
-        .onAppear(perform: setupGame)
+        .navigationTitle("Level \(currentLevel)")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true) // Forces use of Quit button
+        .onAppear(perform: { setupGame() })
         .onReceive(timer) { _ in
             if timerActive && timeRemaining > 0 {
                 timeRemaining -= 1
-                if timeRemaining == 0 {
-                    endGame(success: false)
-                }
+                if timeRemaining == 0 { endGame(success: false) }
             }
         }
-        .alert(gameOverMessage, isPresented:  $showGameOver) {
-            Button("Back to Dashboard", role: .cancel) { /* Pop handled by NavStack */ }
-            Button("Try Again") { setupGame() }
+        // --- 3. Alert Button Logic ---
+        .alert(gameSuccess ? "Level Complete!" : "Game Over", isPresented: $showGameOver) {
+            if gameSuccess {
+                if currentLevel < maxLevel {
+                    Button("Next Level") {
+                        currentLevel += 1
+                        setupGame()
+                    }
+                } else {
+                    Button("Finish") {
+                        dismiss()
+                    }
+                }
+            } else {
+                Button("Try Again") { setupGame() }
+                Button("Quit", role: .cancel) {
+                    dismiss()
+                }
+            }
+        } message: {
+            Text(gameSuccess ? "Great job! Ready for level \(currentLevel + 1)?" : "You ran out of time.")
         }
     }
 
+    // Logic remains same
     func setupGame() {
+        isGameLocked = true
+        timerActive = false
+        selectedIndices = []
+        let numberOfPairs = currentLevel * 3
+        let levelColors = Array(allColors.shuffled().prefix(numberOfPairs))
         var newGrid: [Square] = []
-        // We add 3 squares per color (Total 9).
-        // Logic: 4 pairs will match, 1 square will remain.
-        for color in colors {
-            newGrid.append(Square(color: color, isFaceUp: true))
+        for color in levelColors {
             newGrid.append(Square(color: color, isFaceUp: true))
             newGrid.append(Square(color: color, isFaceUp: true))
         }
         grid = newGrid.shuffled()
-        selectedIndices = []
-        timeRemaining = 30
-        isGameLocked = true
-        timerActive = false // Don't start clock during peek
+        timeRemaining = 20 + (currentLevel * 10)
         
-        // Initial Peek
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation {
+            withAnimation(.spring()) {
                 for i in 0..<grid.count { grid[i].isFaceUp = false }
             }
             isGameLocked = false
-            timerActive = true // Start clock after peek
+            timerActive = true
         }
     }
 
     func handleTap(at index: Int) {
-        if isGameLocked || grid[index].isMatched || grid[index].isFaceUp || selectedIndices.count == 2 { return }
-        
-        withAnimation(.linear(duration: 0.3)) { grid[index].isFaceUp = true }
+        if grid[index].isMatched || grid[index].isFaceUp || selectedIndices.count >= 2 { return }
+        withAnimation(.easeInOut(duration: 0.3)) { grid[index].isFaceUp = true }
         selectedIndices.append(index)
-        
-        if selectedIndices.count == 2 {
-            checkMatch()
-        }
+        if selectedIndices.count == 2 { checkMatch() }
     }
 
     func checkMatch() {
-        let first = selectedIndices[0]
-        let second = selectedIndices[1]
-
+        let first = selectedIndices[0], second = selectedIndices[1]
         if grid[first].color == grid[second].color {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 withAnimation {
@@ -150,33 +178,47 @@ struct GameView: View {
                     grid[second].isMatched = true
                     selectedIndices = []
                 }
-                checkWinCondition()
+                if grid.allSatisfy({ $0.isMatched }) { endGame(success: true) }
             }
         } else {
+            isGameLocked = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation {
                     grid[first].isFaceUp = false
                     grid[second].isFaceUp = false
                     selectedIndices = []
+                    isGameLocked = false
                 }
             }
         }
     }
 
-    func checkWinCondition() {
-        // Count how many squares are NOT matched
-        let unmatchedCount = grid.filter { !$0.isMatched }.count
-        
-        // If only 1 square remains, you win!
-        if unmatchedCount == 1 {
-            endGame(success: true)
-        }
-    }
-
     func endGame(success: Bool) {
         timerActive = false
-        gameOverMessage = success ? "Congratulations! You won!" : "Time's up! You failed."
+        gameSuccess = success
         showGameOver = true
+    }
+}
+
+struct CardView: View {
+    let square: Square
+    var body: some View {
+        ZStack {
+            if !square.isMatched {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(square.isFaceUp ? square.color : Color.blue.opacity(0.8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.2), lineWidth: 2)
+                    )
+                    .shadow(radius: 2)
+                if !square.isFaceUp {
+                    Image(systemName: "questionmark").foregroundColor(.white).font(.title.bold())
+                }
+            } else {
+                RoundedRectangle(cornerRadius: 12).fill(Color.clear)
+            }
+        }
+        .frame(height: 90)
     }
 }
 #Preview {
