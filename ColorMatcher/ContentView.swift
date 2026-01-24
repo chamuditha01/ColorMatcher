@@ -1,6 +1,15 @@
 import SwiftUI
 import Combine
 
+// MARK: - Models
+struct User: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+    var highScore: Int = 0
+    var totalPoints: Int = 0
+    var gamesPlayed: Int = 0
+}
+
 struct Square: Identifiable {
     let id = UUID()
     let color: Color
@@ -8,203 +17,272 @@ struct Square: Identifiable {
     var isMatched: Bool = false
 }
 
+// MARK: - Score Manager
+class ScoreManager: ObservableObject {
+    @Published var users: [User] = []
+    @Published var currentUserIndex: Int? = nil
+    private let saveKey = "MemoryMaster_Users"
+    
+    var currentUser: User? {
+        guard let index = currentUserIndex, users.indices.contains(index) else { return nil }
+        return users[index]
+    }
+    
+    init() {
+        loadData()
+        if users.isEmpty {
+            addUser(name: "Player 1")
+            currentUserIndex = 0
+        } else {
+            currentUserIndex = 0
+        }
+    }
+    
+    func addUser(name: String) {
+        let newUser = User(name: name)
+        users.append(newUser)
+        saveData()
+    }
+    
+    func updateScore(newScore: Int) {
+        guard let index = currentUserIndex, users.indices.contains(index), newScore > 0 else { return }
+        users[index].totalPoints += newScore
+        users[index].gamesPlayed += 1
+        if newScore > users[index].highScore { users[index].highScore = newScore }
+        saveData()
+    }
+    
+    private func saveData() {
+        if let encoded = try? JSONEncoder().encode(users) {
+            UserDefaults.standard.set(encoded, forKey: saveKey)
+        }
+    }
+    
+    private func loadData() {
+        if let data = UserDefaults.standard.data(forKey: saveKey),
+           let decoded = try? JSONDecoder().decode([User].self, from: data) {
+            users = decoded
+        }
+    }
+}
+
 // MARK: - Dashboard
 struct ContentView: View {
+    @StateObject var scoreManager = ScoreManager()
+    @State private var showingUserPicker = false
+    
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: "brain.head.profile")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 80, height: 80)
-                    .foregroundColor(.blue)
-                
-                Text("Memory Master")
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .padding(.bottom, 0)
-                Text("Color Matcher")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .padding(.bottom, 20)
-                // Option 1: Direct Start (Level 1)
-                NavigationLink(destination: GameView(initialLevel: 1)) {
+            VStack(spacing: 25) {
+                Button(action: { showingUserPicker = true }) {
                     HStack {
-                        Image(systemName: "play.fill")
-                        Text("Start New Game")
+                        Image(systemName: "person.crop.circle.fill").font(.title)
+                        VStack(alignment: .leading) {
+                            Text("Current Player").font(.caption)
+                            Text(scoreManager.currentUser?.name ?? "Select User").font(.headline)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.left.and.right.circle")
                     }
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-                }
-                
-                // Option 2: Select Levels
-                NavigationLink(destination: LevelSelectionView()) {
-                    HStack {
-                        Image(systemName: "layers.fill")
-                        Text("Select Level")
-                    }
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
                     .padding()
                     .background(Color.blue.opacity(0.1))
-                    .foregroundColor(.blue)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.blue, lineWidth: 2)
-                    )
+                    .cornerRadius(12)
                 }
-            }
-            .padding(.horizontal, 40)
-            .navigationTitle("Dashboard")
-        }
-    }
-}
+                .padding(.horizontal)
+                .foregroundColor(.blue)
 
-// MARK: - Level Selection
-struct LevelSelectionView: View {
-    let levels = 1...5
-    
-    var body: some View {
-        List(levels, id: \.self) { level in
-            NavigationLink(destination: GameView(initialLevel: level)) {
-                HStack(spacing: 15) {
-                    Text("\(level)")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(width: 35, height: 35)
-                        .background(Color.blue)
-                        .clipShape(Circle())
-                    
-                    VStack(alignment: .leading) {
-                        Text("Level \(level)")
-                            .font(.body.bold())
-                        Text("\(level * 3) Pairs to find")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                VStack(spacing: 8) {
+                    Image(systemName: "brain.head.profile").font(.system(size: 60)).foregroundColor(.blue)
+                    Text("Memory Master").font(.system(.largeTitle, design: .rounded)).bold()
+                }
+                
+                Spacer()
+                
+                VStack(spacing: 16) {
+                    NavigationLink(destination: GameView().environmentObject(scoreManager)) {
+                        MenuButton(title: "Start Infinite Run", icon: "play.fill", color: .blue)
+                    }
+                    NavigationLink(destination: ScoreDetailView().environmentObject(scoreManager)) {
+                        MenuButton(title: "Leaderboard", icon: "chart.bar.xaxis", color: .secondary)
+                    }
+                    // Navigation to Tutorial
+                    NavigationLink(destination: TutorialView()) {
+                        MenuButton(title: "How to Play", icon: "questionmark.circle", color: .orange)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.horizontal, 40)
+                
+                Spacer()
+                
+                HStack(spacing: 40) {
+                    VStack {
+                        Text("\(scoreManager.currentUser?.highScore ?? 0)").font(.headline)
+                        Text("Best").font(.caption).foregroundColor(.secondary)
+                    }
+                    VStack {
+                        Text("\(scoreManager.currentUser?.gamesPlayed ?? 0)").font(.headline)
+                        Text("Runs").font(.caption).foregroundColor(.secondary)
+                    }
+                }
+                .padding(.bottom, 30)
             }
+            .navigationTitle("Dashboard")
+            .navigationBarHidden(true)
+            .sheet(isPresented: $showingUserPicker) { UserSelectionView(scoreManager: scoreManager) }
         }
-        .navigationTitle("Choose a Level")
     }
 }
 
-// MARK: - Game View
+// MARK: - User Selection View
+struct UserSelectionView: View {
+    @ObservedObject var scoreManager: ScoreManager
+    @Environment(\.dismiss) var dismiss
+    @State private var newUserName = ""
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Switch Profile") {
+                    ForEach(0..<scoreManager.users.count, id: \.self) { index in
+                        Button(action: {
+                            scoreManager.currentUserIndex = index
+                            dismiss()
+                        }) {
+                            HStack {
+                                Text(scoreManager.users[index].name).foregroundColor(.primary)
+                                Spacer()
+                                if scoreManager.currentUserIndex == index {
+                                    Image(systemName: "checkmark.circle.fill").foregroundColor(.blue)
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("New Player") {
+                    HStack {
+                        TextField("Enter Name", text: $newUserName)
+                        Button("Add") {
+                            if !newUserName.isEmpty {
+                                scoreManager.addUser(name: newUserName)
+                                newUserName = ""
+                            }
+                        }
+                        .disabled(newUserName.isEmpty)
+                    }
+                }
+            }
+            .navigationTitle("Profiles")
+        }
+    }
+}
+
+
+// MARK: - Game View (With Removal Logic)
 struct GameView: View {
     @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var scoreManager: ScoreManager
     
-    let initialLevel: Int
-    @State private var currentLevel: Int
-    
+    @State private var currentLevel: Int = 1
+    @State private var score: Int = 0
+    @State private var streak: Int = 0
     @State private var grid: [Square] = []
     @State private var selectedIndices: [Int] = []
     @State private var isGameLocked: Bool = false
-    @State private var timeRemaining = 30
+    @State private var timeRemaining = 15
     @State private var timerActive = false
     @State private var showGameOver = false
-    @State private var gameSuccess = false
+    @State private var hasSaved = false
     
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    
-    let allColors: [Color] = [
-        .red, .green, .blue, .orange, .purple,
-        .pink, .yellow, .cyan, .brown, .indigo,
-        .mint, .teal, .gray, .black, Color(red: 1, green: 0, blue: 1)
-    ]
-
-    init(initialLevel: Int) {
-        self.initialLevel = initialLevel
-        _currentLevel = State(initialValue: initialLevel)
-    }
+    let allColors: [Color] = [.red, .green, .blue, .orange, .purple, .pink, .yellow, .cyan, .brown, .indigo, .mint, .teal, .gray]
 
     var columns: [GridItem] {
-        let count = currentLevel > 2 ? 4 : 3
-        return Array(repeating: GridItem(.flexible()), count: count)
+        let count = currentLevel < 3 ? 3 : (currentLevel < 6 ? 4 : 5)
+        return Array(repeating: GridItem(.flexible(), spacing: 10), count: count)
     }
 
     var body: some View {
         VStack(spacing: 15) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text("LEVEL \(currentLevel)")
-                        .font(.caption.bold())
-                        .foregroundColor(.blue)
-                    Text("Time: \(timeRemaining)s")
-                        .font(.title2.monospacedDigit().bold())
-                        .foregroundColor(timeRemaining < 10 ? .red : .primary)
+                    Text("PLAYER: \(scoreManager.currentUser?.name ?? "Guest")").font(.caption2).foregroundColor(.secondary)
+                    Text("LEVEL \(currentLevel)").font(.caption.bold()).foregroundColor(.blue)
+                    Text("Score: \(score)").font(.title3.bold())
                 }
                 Spacer()
-                Text("\(grid.filter { $0.isMatched }.count / 2) / \(grid.count / 2) Pairs")
-                    .font(.subheadline.bold())
+                VStack(alignment: .trailing) {
+                    Text("Streak x\(streak)").foregroundColor(streak > 1 ? .orange : .secondary).bold()
+                    Text("\(timeRemaining)s").font(.title3.monospacedDigit().bold())
+                        .foregroundColor(timeRemaining < 5 ? .red : .primary)
+                }
             }
+            .padding()
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)).shadow(radius: 2))
             .padding(.horizontal)
 
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(0..<grid.count, id: \.self) { index in
-                        CardView(square: grid[index])
-                            .onTapGesture {
-                                if !isGameLocked && timerActive { handleTap(at: index) }
+            GeometryReader { _ in
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(0..<grid.count, id: \.self) { index in
+                            ZStack {
+                                // FIXED: If matched, we show nothing (remove from grid)
+                                if !grid[index].isMatched {
+                                    CardView(square: grid[index])
+                                        .onTapGesture { handleTap(at: index) }
+                                        .transition(.scale.combined(with: .opacity)) // Animation for removal
+                                } else {
+                                    // Empty space to maintain grid alignment if desired,
+                                    // or remove entirely.
+                                    Color.clear.aspectRatio(1, contentMode: .fit)
+                                }
                             }
+                        }
                     }
+                    .padding()
                 }
-                .padding()
             }
 
-            Button("Quit Game") {
-                dismiss()
+            Button(role: .destructive, action: { saveScore(); dismiss() }) {
+                Text("Quit Session").fontWeight(.semibold).padding()
             }
-            .foregroundColor(.red)
-            .padding(.bottom)
         }
         .navigationBarBackButtonHidden(true)
-        .onAppear(perform: setupGame)
+        .onAppear(perform: setupLevel)
+        .onDisappear(perform: saveScore)
         .onReceive(timer) { _ in
             if timerActive && timeRemaining > 0 {
                 timeRemaining -= 1
-                if timeRemaining == 0 { endGame(success: false) }
+                if timeRemaining == 0 { endGame() }
             }
         }
-        .alert(gameSuccess ? "Level Complete!" : "Game Over", isPresented: $showGameOver) {
-            if gameSuccess {
-                if currentLevel < 5 {
-                    Button("Next Level") {
-                        currentLevel += 1
-                        setupGame()
-                    }
-                } else {
-                    Button("Finish") { dismiss() }
-                }
-            } else {
-                Button("Try Again") { setupGame() }
-                Button("Quit", role: .cancel) { dismiss() }
-            }
-        } message: {
-            Text(gameSuccess ? "Great job! Ready for level \(currentLevel + 1)?" : "You ran out of time.")
-        }
+        .alert("Game Over", isPresented: $showGameOver) {
+            Button("Main Menu") { dismiss() }
+        } message: { Text("Final Score: \(score)") }
+    }
+    
+    func saveScore() {
+        guard !hasSaved else { return }
+        scoreManager.updateScore(newScore: score)
+        hasSaved = true
     }
 
-    func setupGame() {
+    func setupLevel() {
         isGameLocked = true
         timerActive = false
         selectedIndices = []
-        
-        let numberOfPairs = currentLevel * 3
-        let levelColors = Array(allColors.shuffled().prefix(numberOfPairs))
-        
+        let numberOfPairs = min(currentLevel + 2, 12)
+        var levelColors: [Color] = []
+        for i in 0..<numberOfPairs { levelColors.append(allColors[i % allColors.count]) }
         var newGrid: [Square] = []
         for color in levelColors {
             newGrid.append(Square(color: color, isFaceUp: true))
             newGrid.append(Square(color: color, isFaceUp: true))
         }
-        
         grid = newGrid.shuffled()
-        timeRemaining = 20 + (currentLevel * 10)
+        timeRemaining = 10 + (numberOfPairs * 2)
+        let previewTime = max(2.0 - (Double(currentLevel) * 0.1), 0.5)
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + previewTime) {
             withAnimation(.spring()) {
                 for i in 0..<grid.count { grid[i].isFaceUp = false }
             }
@@ -214,7 +292,7 @@ struct GameView: View {
     }
 
     func handleTap(at index: Int) {
-        if grid[index].isMatched || grid[index].isFaceUp || selectedIndices.count >= 2 { return }
+        guard !isGameLocked, timerActive, !grid[index].isMatched, !grid[index].isFaceUp, selectedIndices.count < 2 else { return }
         withAnimation(.easeInOut(duration: 0.3)) { grid[index].isFaceUp = true }
         selectedIndices.append(index)
         if selectedIndices.count == 2 { checkMatch() }
@@ -223,17 +301,22 @@ struct GameView: View {
     func checkMatch() {
         let first = selectedIndices[0], second = selectedIndices[1]
         if grid[first].color == grid[second].color {
+            streak += 1
+            score += (10 * streak) * currentLevel
+            
+            // Wait slightly so user sees the second card before it vanishes
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                withAnimation {
+                withAnimation(.spring()) {
                     grid[first].isMatched = true
                     grid[second].isMatched = true
                     selectedIndices = []
                 }
-                if grid.allSatisfy({ $0.isMatched }) { endGame(success: true) }
+                if grid.allSatisfy({ $0.isMatched }) { nextLevel() }
             }
         } else {
+            streak = 0
             isGameLocked = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
                 withAnimation {
                     grid[first].isFaceUp = false
                     grid[second].isFaceUp = false
@@ -244,38 +327,52 @@ struct GameView: View {
         }
     }
 
-    func endGame(success: Bool) {
+    func nextLevel() {
         timerActive = false
-        gameSuccess = success
+        score += timeRemaining * 5
+        currentLevel += 1
+        setupLevel()
+    }
+
+    func endGame() {
+        timerActive = false
+        saveScore()
         showGameOver = true
     }
 }
 
-// MARK: - Card Component
+// MARK: - Reuse Components
+struct MenuButton: View {
+    let title: String
+    let icon: String
+    let color: Color
+    var body: some View {
+        Label(title, systemImage: icon)
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(color.opacity(color == .blue ? 1.0 : 0.1))
+            .foregroundColor(color == .blue ? .white : color)
+            .cornerRadius(15)
+    }
+}
+
 struct CardView: View {
     let square: Square
     var body: some View {
         ZStack {
-            if !square.isMatched {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(square.isFaceUp ? square.color : Color.blue.opacity(0.8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 2)
-                    )
-                    .shadow(radius: 2)
-                
-                if !square.isFaceUp {
-                    Image(systemName: "questionmark")
-                        .foregroundColor(.white)
-                        .font(.title.bold())
-                }
-            } else {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.clear)
-            }
+            RoundedRectangle(cornerRadius: 12)
+                .fill(LinearGradient(colors: [.blue, .blue.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay(Image(systemName: "questionmark").foregroundColor(.white.opacity(0.6)))
+                .opacity(square.isFaceUp ? 0 : 1)
+            
+            RoundedRectangle(cornerRadius: 12)
+                .fill(square.color)
+                .opacity(square.isFaceUp ? 1 : 0)
         }
-        .frame(height: 90)
+        .rotation3DEffect(.degrees(square.isFaceUp ? 180 : 0), axis: (x: 0, y: 1, z: 0))
+        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: square.isFaceUp)
+        .aspectRatio(1, contentMode: .fit)
     }
 }
 
