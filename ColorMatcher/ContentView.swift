@@ -1,15 +1,22 @@
 import SwiftUI
 import Combine
+import FirebaseFirestore // Make sure this is imported
 
-// MARK: - Models
 struct User: Identifiable, Codable, Equatable {
-    var id = UUID()
+    @DocumentID var id: String?  // This is the magic fix
     var name: String
     var highScore: Int = 0
     var totalPoints: Int = 0
     var gamesPlayed: Int = 0
-}
 
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case highScore
+        case totalPoints
+        case gamesPlayed
+    }
+}
 struct Square: Identifiable {
     let id = UUID()
     let color: Color
@@ -17,52 +24,95 @@ struct Square: Identifiable {
     var isMatched: Bool = false
 }
 
-// MARK: - Score Manager
+// MARK: - Score Manager (Firebase Logic)
 class ScoreManager: ObservableObject {
     @Published var users: [User] = []
     @Published var currentUserIndex: Int? = nil
-    private let saveKey = "MemoryMaster_Users"
-    
+    private var db = Firestore.firestore()
+    private var listener: ListenerRegistration?
+
     var currentUser: User? {
         guard let index = currentUserIndex, users.indices.contains(index) else { return nil }
         return users[index]
     }
-    
+
     init() {
-        loadData()
-        if users.isEmpty {
-            addUser(name: "Player 1")
-            currentUserIndex = 0
-        } else {
-            currentUserIndex = 0
+        // Force Firestore to connect to the network
+        db.enableNetwork { error in
+            if let error = error {
+                print("Could not enable network: \(error.localizedDescription)")
+            } else {
+                print("Firestore Network Enabled")
+            }
         }
+        fetchUsers()
     }
-    
+
+    /// Fetches all users from Firestore in real-time
+    func fetchUsers() {
+        listener = db.collection("users")
+            .order(by: "highScore", descending: true)
+            .addSnapshotListener { (querySnapshot, error) in
+                guard let documents = querySnapshot?.documents else {
+                    print("Firebase Error: \(error?.localizedDescription ?? "Unknown")")
+                    return
+                }
+                
+                DispatchQueue.main.async {
+                    self.users = documents.compactMap { doc -> User? in
+                        do {
+                            // This will now tell us EXACTLY what is wrong in the Xcode console
+                            return try doc.data(as: User.self)
+                        } catch {
+                            print("Decoding Error for doc \(doc.documentID): \(error)")
+                            return nil
+                        }
+                    }
+                    
+                    if !self.users.isEmpty && self.currentUserIndex == nil {
+                        self.currentUserIndex = 0
+                    }
+                }
+            }
+    }
+
     func addUser(name: String) {
-        let newUser = User(name: name)
-        users.append(newUser)
-        saveData()
+        let newId = UUID().uuidString
+        let userRef = db.collection("users").document(newId)
+        
+        // Manual dictionary ensures Firebase sees exactly what we want to send
+        let userData: [String: Any] = [
+            "id": newId,
+            "name": name,
+            "highScore": 0,
+            "totalPoints": 0,
+            "gamesPlayed": 0
+        ]
+        
+        userRef.setData(userData) { error in
+            if let error = error {
+                print("❌ Firebase Write Failed: \(error.localizedDescription)")
+            } else {
+                print("✅ Successfully saved to Cloud Firestore! ID: \(newId)")
+            }
+        }
     }
-    
+
     func updateScore(newScore: Int) {
-        guard let index = currentUserIndex, users.indices.contains(index), newScore > 0 else { return }
-        users[index].totalPoints += newScore
-        users[index].gamesPlayed += 1
-        if newScore > users[index].highScore { users[index].highScore = newScore }
-        saveData()
+        guard let user = currentUser, newScore > 0 else { return }
+        
+        let userRef = db.collection("users").document(user.id ?? <#default value#>)
+        let isNewHighScore = newScore > user.highScore
+        
+        userRef.updateData([
+            "totalPoints": FieldValue.increment(Int64(newScore)),
+            "gamesPlayed": FieldValue.increment(Int64(1)),
+            "highScore": isNewHighScore ? newScore : user.highScore
+        ])
     }
     
-    private func saveData() {
-        if let encoded = try? JSONEncoder().encode(users) {
-            UserDefaults.standard.set(encoded, forKey: saveKey)
-        }
-    }
-    
-    private func loadData() {
-        if let data = UserDefaults.standard.data(forKey: saveKey),
-           let decoded = try? JSONDecoder().decode([User].self, from: data) {
-            users = decoded
-        }
+    deinit {
+        listener?.remove()
     }
 }
 
@@ -105,9 +155,19 @@ struct ContentView: View {
                     NavigationLink(destination: ScoreDetailView().environmentObject(scoreManager)) {
                         MenuButton(title: "Leaderboard", icon: "chart.bar.xaxis", color: .secondary)
                     }
-                    // Navigation to Tutorial
                     NavigationLink(destination: TutorialView()) {
                         MenuButton(title: "How to Play", icon: "questionmark.circle", color: .orange)
+                    }
+                }
+                // Inside ContentView body...
+                VStack(alignment: .leading) {
+                    Text("Current Player").font(.caption)
+                    if let user = scoreManager.currentUser {
+                        Text(user.name).font(.headline)
+                    } else if scoreManager.users.isEmpty {
+                        Text("Loading Players...").font(.headline).italic() // Shows while Firebase is thinking
+                    } else {
+                        Text("Select User").font(.headline)
                     }
                 }
                 .padding(.horizontal, 40)
@@ -133,51 +193,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - User Selection View
-struct UserSelectionView: View {
-    @ObservedObject var scoreManager: ScoreManager
-    @Environment(\.dismiss) var dismiss
-    @State private var newUserName = ""
-    
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("Switch Profile") {
-                    ForEach(0..<scoreManager.users.count, id: \.self) { index in
-                        Button(action: {
-                            scoreManager.currentUserIndex = index
-                            dismiss()
-                        }) {
-                            HStack {
-                                Text(scoreManager.users[index].name).foregroundColor(.primary)
-                                Spacer()
-                                if scoreManager.currentUserIndex == index {
-                                    Image(systemName: "checkmark.circle.fill").foregroundColor(.blue)
-                                }
-                            }
-                        }
-                    }
-                }
-                Section("New Player") {
-                    HStack {
-                        TextField("Enter Name", text: $newUserName)
-                        Button("Add") {
-                            if !newUserName.isEmpty {
-                                scoreManager.addUser(name: newUserName)
-                                newUserName = ""
-                            }
-                        }
-                        .disabled(newUserName.isEmpty)
-                    }
-                }
-            }
-            .navigationTitle("Profiles")
-        }
-    }
-}
-
-
-// MARK: - Game View (With Removal Logic)
+// MARK: - Game View
 struct GameView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var scoreManager: ScoreManager
@@ -225,14 +241,11 @@ struct GameView: View {
                     LazyVGrid(columns: columns, spacing: 10) {
                         ForEach(0..<grid.count, id: \.self) { index in
                             ZStack {
-                                // FIXED: If matched, we show nothing (remove from grid)
                                 if !grid[index].isMatched {
                                     CardView(square: grid[index])
                                         .onTapGesture { handleTap(at: index) }
-                                        .transition(.scale.combined(with: .opacity)) // Animation for removal
+                                        .transition(.scale.combined(with: .opacity))
                                 } else {
-                                    // Empty space to maintain grid alignment if desired,
-                                    // or remove entirely.
                                     Color.clear.aspectRatio(1, contentMode: .fit)
                                 }
                             }
@@ -304,7 +317,6 @@ struct GameView: View {
             streak += 1
             score += (10 * streak) * currentLevel
             
-            // Wait slightly so user sees the second card before it vanishes
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 withAnimation(.spring()) {
                     grid[first].isMatched = true
@@ -340,6 +352,51 @@ struct GameView: View {
         showGameOver = true
     }
 }
+
+// MARK: - User Selection View
+struct UserSelectionView: View {
+    @ObservedObject var scoreManager: ScoreManager
+    @Environment(\.dismiss) var dismiss
+    @State private var newUserName = ""
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Switch Profile") {
+                    ForEach(0..<scoreManager.users.count, id: \.self) { index in
+                        Button(action: {
+                            scoreManager.currentUserIndex = index
+                            dismiss()
+                        }) {
+                            HStack {
+                                Text(scoreManager.users[index].name).foregroundColor(.primary)
+                                Spacer()
+                                if scoreManager.currentUserIndex == index {
+                                    Image(systemName: "checkmark.circle.fill").foregroundColor(.blue)
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("New Player") {
+                    HStack {
+                        TextField("Enter Name", text: $newUserName)
+                        Button("Add") {
+                            if !newUserName.isEmpty {
+                                scoreManager.addUser(name: newUserName)
+                                newUserName = ""
+                            }
+                        }
+                        .disabled(newUserName.isEmpty)
+                    }
+                }
+            }
+            .navigationTitle("Profiles")
+        }
+    }
+}
+
+
 
 // MARK: - Reuse Components
 struct MenuButton: View {

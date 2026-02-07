@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		751A3D222F2DC74B0048BA9D /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 751A3D212F2DC74B0048BA9D /* FirebaseCore */; };
+		75ECFBF62F36EB0600B6BF28 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 75ECFBF52F36EB0600B6BF28 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				751A3D222F2DC74B0048BA9D /* FirebaseCore in Frameworks */,
+				75ECFBF62F36EB0600B6BF28 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,6 +81,7 @@
 			name = ColorMatcher;
 			packageProductDependencies = (
 				751A3D212F2DC74B0048BA9D /* FirebaseCore */,
+				75ECFBF52F36EB0600B6BF28 /* FirebaseFirestore */,
 			);
 			productName = ColorMatcher;
 			productReference = 756BBF2A2F1B486200DDBB3A /* ColorMatcher.app */;
@@ -362,6 +365,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 751A3D1F2F2DC72C0048BA9D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCore;
+		};
+		75ECFBF52F36EB0600B6BF28 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 751A3D1F2F2DC72C0048BA9D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
